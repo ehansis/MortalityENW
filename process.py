@@ -1,5 +1,7 @@
 from pathlib import Path
+import json
 
+import numpy as np
 import pandas as pd
 import re
 
@@ -25,15 +27,13 @@ file_names_20th_century = [
     "1994-2000-icd9c.xls",
 ]
 
-file_name_21st_century = "21stcenturymortality2019final.xls"
-
 
 #
 # Configuration
 #
 
 # years to keep
-years = list(range(1915, 2015 + 1, 5))
+years = list(range(1915, 2000 + 1, 5))
 
 # how many top-N codes to keep
 top_n_codes = 100
@@ -104,16 +104,16 @@ ICD_CATEGORIES = {
         "ICD-3": "108, 110-112, 117-120, 122-127",
         "ICD-2": "99, 101-103, 108-111, 113-115, 117-118",
     },
-    "Musculoskeletal system": {
-        "ICD-9": "710-739",
-        "ICD-8": "710-738",
-        "ICD-7": "710-732, 734-738",
-        "ICD-6": "720-739, 745-749",
-        "ICD-5": "59, 154-156",
-        "ICD-4": "57, 154-156",
-        "ICD-3": "52, 155-158",
-        "ICD-2": "48, 146-149",
-    },
+    # "Musculoskeletal system": {
+    #     "ICD-9": "710-739",
+    #     "ICD-8": "710-738",
+    #     "ICD-7": "710-732, 734-738",
+    #     "ICD-6": "720-739, 745-749",
+    #     "ICD-5": "59, 154-156",
+    #     "ICD-4": "57, 154-156",
+    #     "ICD-3": "52, 155-158",
+    #     "ICD-2": "48, 146-149",
+    # },
     "Cancer": {
         "ICD-9": "140-239",
         "ICD-8": "140-239",
@@ -124,6 +124,19 @@ ICD_CATEGORIES = {
         "ICD-3": "43-49, 50, 65, 84b, 139",
         "ICD-2": "39-45, 46, 74c, 53, 129",
     },
+}
+
+# order and left/right sorting of categories
+CATEGORY_ORDER = {
+    "Infectious disease": -1,
+    "Complications of pregnancy and childbirth": -2,
+    "Injury and poisoning": -3,
+    "Other": 1,
+    "Circulatory system": 2,
+    "Cancer": 3,
+    "Nervous system": 4,
+    "Digestive system": 5,
+    # "Musculoskeletal system": 5,
 }
 
 
@@ -257,11 +270,13 @@ def load_20th_century():
                 df.loc[~has_kept_code, "category"] + ", other"
             )
 
-            # aggregate by description and age group to reduce data size
+            # aggregate to 80+ age group (early data has only 80+, later data has 80-84 and 85+),
+            # aggregation is done in next line
+            df.loc[df["age"].str.startswith("8"), "age"] = "80+"
+
+            # aggregate by description age group and sex to reduce data size
             df_agg = (
-                df.groupby(["year", "sex", "age", "category", "desc"])["n"]
-                .sum()
-                .reset_index()
+                df.groupby(["year", "age", "category", "desc"])["n"].sum().reset_index()
             )
 
             # done with this chunk
@@ -271,6 +286,133 @@ def load_20th_century():
     return pd.concat(out, ignore_index=True)
 
 
+def data_to_tree(df):
+    """Process data table to derive structure useful for tree plotting
+
+    Generates three files:
+    (1) categories data (communicable disease, injury, ...) - this is used to plot the
+        Sankey-style links that make up the trunk and branches of the tree;
+    (2) diagnosis data (single ICD codes) - this is used to plot the tips of the
+        branches.
+    (3) metadata: JSON file containing all sorts of useful information, like sorted
+        age groups, total counts, centering information, ...
+
+    In each file there is one line per category or per diagnosis. Each line contains fields:
+    * ageIdx: linear integer index of age group, starting at 0 for age group 0-1
+    * catIdx: integer index of category; 0 for trunk, negative for left half, positive for
+        right half, with absolute value increasing away from the trunk
+    * frac: fraction of deaths that fall into this age group and category or disease
+    * cumFrac: fraction at right edge for sorted placement of categories/diseases
+        (a category or disease covers the scaled horizontal range cumFrac - frac ... cumFrac)
+    """
+    # container for metadata JSON
+    meta = dict(years=sorted([int(i) for i in df["year"].unique()]))
+
+    # sort age groups, then rename to strip leading zeros
+    df.loc[df["age"] == "<1", "age"] = "00-01"
+    ages_sorted = sorted(df["age"].unique())
+    age_map = {
+        s: s if s == "80+" else f"{int(s.split('-')[0])}-{int(s.split('-')[1])}"
+        for s in ages_sorted
+    }
+    meta["ages"] = [age_map[s] for s in ages_sorted]
+
+    # map in category order
+    df["catIdx"] = df["category"].map(CATEGORY_ORDER)
+    assert not df["catIdx"].isnull().any()
+
+    # compute fraction of deaths per year occurring in each age group and code
+    df["frac"] = df.groupby("year", group_keys=False).apply(
+        lambda g: g["n"] / g["n"].sum()
+    )
+    assert abs(df["frac"].sum() - len(years)) < 1.0e-9
+    df = df.drop(["n"], axis=1)
+
+    # for each age group add an entry for deaths occurring at older ages
+    df = df.set_index(["year", "age"]).sort_index()
+    older_ages_rows = []
+    for year in years:
+        prev_frac_sum = 1
+        for age in ages_sorted:
+            age_frac_sum = df.loc[(year, age)]["frac"].sum()
+            older_frac = prev_frac_sum - age_frac_sum
+            desc = (
+                f"Older than {int(age.split('-')[1])} years"
+                if "-" in age
+                else "Impossible!"  # for 85+
+            )
+            older_ages_rows.append(
+                dict(
+                    year=year,
+                    age=age,
+                    category=desc,
+                    desc=desc,
+                    catIdx=0,
+                    frac=older_frac,
+                )
+            )
+            prev_frac_sum = older_frac
+
+    # append the additional rows, sort everything
+    assert df.isnull().sum().sum() == 0
+    df = pd.concat([df.reset_index(), pd.DataFrame(older_ages_rows)]).sort_values(
+        by=["year", "age", "catIdx"]
+    )  # type: pd.DataFrame
+    assert df.isnull().sum().sum() == 0
+
+    # within each year, age and category sort such that large fractions are close to the trunk
+    df["sort_order"] = df["frac"] * np.sign(df["catIdx"])
+    df = df.sort_values(
+        by=["year", "age", "catIdx", "sort_order"],
+        ascending=[True, True, True, False],
+    ).drop(["sort_order"], axis=1)
+
+    # compute cumulative fraction per year and age group for horizontal positioning
+    df["cumFrac"] = df.groupby(["year", "age"], group_keys=False)["frac"].apply(
+        lambda g: g.cumsum()
+    )
+    assert df["cumFrac"].min() > 1.0e-9
+    assert df["cumFrac"].max() < 1 + 1.0e-9
+
+    def center_trunk(g):
+        trunk_row = g[g["catIdx"] == 0].iloc[0]
+        frac_shift = 0.5 - (trunk_row["cumFrac"] - 0.5 * trunk_row["frac"])
+        return g["cumFrac"] + frac_shift
+
+    # shift cumFrac such that trunk (catIdx = 0) is always centered at 0.5
+    df["cumFrac"] = df.groupby(["year", "age"], group_keys=False).apply(center_trunk)
+
+    # this is the disease-level file, map ages to nicer strings before returning
+    # (can only do that now because we needed the leading zeros for sorting)
+    dis = df.copy()
+    dis["age"] = dis["age"].map(age_map)
+    assert not dis["age"].isnull().any()
+
+    # aggregate on the category level
+    cat = (
+        df.groupby(["year", "age", "category"])
+        .agg({"frac": "sum", "catIdx": "first", "cumFrac": "max"})
+        .reset_index()
+    )
+    cat = cat.sort_values(by=["year", "age", "catIdx"])
+    cat["age"] = cat["age"].map(age_map)
+    assert not cat["age"].isnull().any()
+
+    return dis, cat, meta
+
+
 if __name__ == "__main__":
-    df20 = load_20th_century()
-    pd.concat([df20]).to_csv(output_dir / "Deaths_ENW_1915-2015.csv", index=False)
+    # convert data to CSV table, if it doesn't exist yet
+    all_data_csv = output_dir / "Deaths_ENW_1915-2015.csv"
+    if not all_data_csv.exists():
+        df20 = load_20th_century()
+        df20.to_csv(all_data_csv, index=False)
+
+    # process into tree definitions
+    df20 = pd.read_csv(all_data_csv)
+    diseases, categories, metadata = data_to_tree(df20)
+    diseases.to_csv(output_dir / "Deaths_ENW_1915-2015_disease_tree.csv", index=False)
+    categories.to_csv(
+        output_dir / "Deaths_ENW_1915-2015_category_tree.csv", index=False
+    )
+    json.dump(metadata, (output_dir / "Deaths_ENW_1915-2015_tree_meta.json").open("w"))
