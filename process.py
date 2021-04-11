@@ -276,7 +276,9 @@ def load_20th_century():
 
             # for ages > 10, aggregate to 10-year age groups instead of 5-year groups
             for decade in range(1, 8):
-                df.loc[df["age"].str.startswith(str(decade)), "age"] = f"{decade * 10}-{decade*10 + 9}"
+                df.loc[
+                    df["age"].str.startswith(str(decade)), "age"
+                ] = f"{decade * 10}-{decade*10 + 9}"
 
             # aggregate by description age group and sex to reduce data size
             df_agg = (
@@ -379,6 +381,7 @@ def data_to_tree(df):
     assert df["cumFrac"].max() < 1 + 1.0e-9
 
     def align_trunk(g):
+        # shift segments to align properly
         prev_left_sum = 0
         frac_sum_per_side = g.groupby([g["age"], np.sign(g["catIdx"])])["frac"].sum()
         g = g.set_index("age")
@@ -386,10 +389,18 @@ def data_to_tree(df):
             g.loc[a, "cumFrac"] += prev_left_sum
             prev_left_sum += frac_sum_per_side.loc[a, -1]
 
+        # store fractional position of outer edges of branch bundles, after shifting
+        for a in ages_sorted:
+            trunk_row = g.loc[a][g.loc[a, "catIdx"] == 0].iloc[0]
+            g.loc[a, "leftFrac"] = (
+                trunk_row["cumFrac"] - trunk_row["frac"] - frac_sum_per_side.loc[a, -1]
+            )
+            g.loc[a, "rightFrac"] = trunk_row["cumFrac"] + frac_sum_per_side.loc[a, 1]
+
         return g.reset_index()
 
     # shift cumFrac such that ingoing fraction for each age aligns with the trunk
-    # of the previous age
+    # of the previous age; also store leftFrac and rightFrac
     df = df.groupby("year", group_keys=False).apply(align_trunk)
 
     # this is the disease-level file, map ages to nicer strings before returning
@@ -401,7 +412,15 @@ def data_to_tree(df):
     # aggregate on the category level
     cat = (
         df.groupby(["year", "age", "category"])
-        .agg({"frac": "sum", "catIdx": "first", "cumFrac": "max"})
+        .agg(
+            {
+                "frac": "sum",
+                "catIdx": "first",
+                "cumFrac": "max",
+                "leftFrac": "max",
+                "rightFrac": "max",
+            }
+        )
         .reset_index()
     )
     cat = cat.sort_values(by=["year", "age", "catIdx"])
