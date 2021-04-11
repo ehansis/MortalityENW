@@ -274,6 +274,10 @@ def load_20th_century():
             # aggregation is done in next line
             df.loc[df["age"].str.startswith("8"), "age"] = "80+"
 
+            # for ages > 10, aggregate to 10-year age groups instead of 5-year groups
+            for decade in range(1, 8):
+                df.loc[df["age"].str.startswith(str(decade)), "age"] = f"{decade * 10}-{decade*10 + 9}"
+
             # aggregate by description age group and sex to reduce data size
             df_agg = (
                 df.groupby(["year", "age", "category", "desc"])["n"].sum().reset_index()
@@ -328,7 +332,7 @@ def data_to_tree(df):
     assert abs(df["frac"].sum() - len(years)) < 1.0e-9
     df = df.drop(["n"], axis=1)
 
-    # for each age group add an entry for deaths occurring at older ages
+    # for each age group, add an entry for deaths occurring at older ages
     df = df.set_index(["year", "age"]).sort_index()
     older_ages_rows = []
     for year in years:
@@ -337,7 +341,7 @@ def data_to_tree(df):
             age_frac_sum = df.loc[(year, age)]["frac"].sum()
             older_frac = prev_frac_sum - age_frac_sum
             desc = (
-                f"Older than {int(age.split('-')[1])} years"
+                f"older than {int(age.split('-')[1])} years"
                 if "-" in age
                 else "Impossible!"  # for 85+
             )
@@ -374,13 +378,19 @@ def data_to_tree(df):
     assert df["cumFrac"].min() > 1.0e-9
     assert df["cumFrac"].max() < 1 + 1.0e-9
 
-    def center_trunk(g):
-        trunk_row = g[g["catIdx"] == 0].iloc[0]
-        frac_shift = 0.5 - (trunk_row["cumFrac"] - 0.5 * trunk_row["frac"])
-        return g["cumFrac"] + frac_shift
+    def align_trunk(g):
+        prev_left_sum = 0
+        frac_sum_per_side = g.groupby([g["age"], np.sign(g["catIdx"])])["frac"].sum()
+        g = g.set_index("age")
+        for a in ages_sorted:
+            g.loc[a, "cumFrac"] += prev_left_sum
+            prev_left_sum += frac_sum_per_side.loc[a, -1]
 
-    # shift cumFrac such that trunk (catIdx = 0) is always centered at 0.5
-    df["cumFrac"] = df.groupby(["year", "age"], group_keys=False).apply(center_trunk)
+        return g.reset_index()
+
+    # shift cumFrac such that ingoing fraction for each age aligns with the trunk
+    # of the previous age
+    df = df.groupby("year", group_keys=False).apply(align_trunk)
 
     # this is the disease-level file, map ages to nicer strings before returning
     # (can only do that now because we needed the leading zeros for sorting)
@@ -397,6 +407,11 @@ def data_to_tree(df):
     cat = cat.sort_values(by=["year", "age", "catIdx"])
     cat["age"] = cat["age"].map(age_map)
     assert not cat["age"].isnull().any()
+
+    # categories in the correct order
+    meta["categories"] = list(
+        cat.groupby("catIdx")["category"].first().sort_index().values
+    )
 
     return dis, cat, meta
 
