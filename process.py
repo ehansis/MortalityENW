@@ -74,7 +74,7 @@ ICD_CATEGORIES = {
         "ICD-3": "165-174, 176-203",
         "ICD-2": "57-58, 153, 155-163, 165-173, 174-186",
     },
-    "Circulatory system": {
+    "Circulatory system disease": {
         "ICD-9": "390-459",
         "ICD-8": "390-459, 782-789",
         "ICD-7": "330-334, 400-468, 782",
@@ -84,7 +84,7 @@ ICD_CATEGORIES = {
         "ICD-3": "51, 74, 81, 83, 87-96",
         "ICD-2": "47, 64-65, 72, 77-85",
     },
-    "Nervous system": {
+    "Nervous system disease": {
         "ICD-9": "320-389",
         "ICD-8": "320-389, 739-781",
         "ICD-7": "335-398, 740-744",
@@ -94,7 +94,7 @@ ICD_CATEGORIES = {
         "ICD-3": "70, 73, 75, 78, 79-80, 82, 84(3), 84(4), 84(5), 85, 86",
         "ICD-2": "63, 66, 69, 73, 74a, 74b, 74d, 75, 76",
     },
-    "Digestive system": {
+    "Digestive system disease": {
         "ICD-9": "520-577",
         "ICD-8": "520-577",
         "ICD-7": "530-570, 572-587",
@@ -126,16 +126,18 @@ ICD_CATEGORIES = {
     },
 }
 
+OTHER_LABEL = "Other disease"
+
 # order and left/right sorting of categories
 CATEGORY_ORDER = {
     "Infectious disease": -1,
     "Complications of pregnancy and childbirth": -2,
     "Injury and poisoning": -3,
-    "Other": 1,
-    "Circulatory system": 2,
-    "Cancer": 3,
-    "Nervous system": 4,
-    "Digestive system": 5,
+    "Circulatory system disease": 1,
+    "Cancer": 2,
+    "Nervous system disease": 3,
+    "Digestive system disease": 4,
+    OTHER_LABEL: 5,
     # "Musculoskeletal system": 5,
 }
 
@@ -152,7 +154,7 @@ def left_pad_code(code):
 def map_icd_codes_to_categories(df, icd_version):
     """Append a column 'category' to df containing disease categories"""
     # default label
-    df["category"] = "Other"
+    df["category"] = OTHER_LABEL
 
     # From ICD6 on we have numerical-only four-digit codes, categorization works
     # on 3-digit codes only. Drop the last digit before left-padding.
@@ -175,7 +177,7 @@ def map_icd_codes_to_categories(df, icd_version):
             row_sel = (df["lp_code"] >= left_pad_code(start_code)) & (
                 df["lp_code"] <= left_pad_code(end_code) + "z"
             )
-            assert (df.loc[row_sel, "category"].isin(["Other", category])).all()
+            assert (df.loc[row_sel, "category"].isin([OTHER_LABEL, category])).all()
 
             # set category
             df.loc[
@@ -253,7 +255,7 @@ def load_20th_century():
             df["desc"] = df["code"].map(descriptions).fillna("Other")
             assert (df["desc"] == "Other").sum() / len(df) < 0.05
             map_icd_codes_to_categories(df, icd_version)
-            assert (df["category"] == "Other").sum() / len(df) < 0.3
+            assert (df["category"] == OTHER_LABEL).sum() / len(df) < 0.3
 
             # keep only top N codes by number of deaths (across all age groups)
             kept_codes = (
