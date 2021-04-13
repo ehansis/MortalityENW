@@ -14,7 +14,7 @@ Data files are expected (unzip'd) in `../rawdata`, relative to this file.
 All code is in `process.py`.
 
 * Load data tables for every 5th data year, 1915 to 2000
-* Map ICD codes to categories (communicable, injuries, ...) according to the [Appendix](https://link.springer.com/content/pdf/bbm%3A978-3-319-14403-0%2F1.pdf) of ["The Transitions of Aging" by Suchit Arora](http://dx.doi.org/10.1007/978-3-319-14403-0), with the ICD-10 mapping defined by myself. Translation tables are hardcoded in `process.py`. NOTE: they are slightly simplified in the code, e.g. disregarding excluded ICD sub-codes from groups. Also, the table in the book has some sever typos in the group codes, overlaps between groups... !
+* Map ICD codes to categories (communicable, injuries, ...) according to the Annex of [Health Statistics Quarterly - No. 18, Summer 2003: Twentieth Century Mortality Trends in England and Wales](https://webarchive.nationalarchives.gov.uk/20160110132842/http://www.ons.gov.uk/ons/rel/hsq/health-statistics-quarterly/no--18--summer-2003/twentieth-century-mortality-trends-in-england-and-wales.pdf). Translation tables are hardcoded in `process.py`. NOTE: the table in the paper has some typos in the group codes, overlaps between groups... !
 * Keep top N ICD codes per data year, aggregate others to 'Other communicable diseases', 'Other injuries', ...
 * Attach ICD descriptions to retained codes
 * Dump everything into a CSV file in `../outdata/`, relative to this file
