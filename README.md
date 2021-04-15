@@ -1,11 +1,10 @@
 # MortalityENW
 
-Preprocessing for a data viz exercise with mortality data from England and Wales
+Preprocessing for [The Tree of Life](https://observablehq.com/@ehansis/the-tree-of-life), a data viz project using mortality data from England and Wales
 
-## Data sources
+## Data source
 
-* [Deaths registered in England and Wales – 21st century mortality](https://www.ons.gov.uk/peoplepopulationandcommunity/birthsdeathsandmarriages/deaths/datasets/the21stcenturymortalityfilesdeathsdataset)
-* [The 20th Century Mortality Files, 1901 to 2000](https://webarchive.nationalarchives.gov.uk/20160111174808/http://www.ons.gov.uk/ons/publications/re-reference-tables.html?edition=tcm%3A77-215593)
+[The 20th Century Mortality Files, 1901 to 2000](https://webarchive.nationalarchives.gov.uk/20160111174808/http://www.ons.gov.uk/ons/publications/re-reference-tables.html?edition=tcm%3A77-215593)
 
 Data files are expected (unzip'd) in `../rawdata`, relative to this file.
 
